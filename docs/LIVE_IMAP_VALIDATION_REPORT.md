@@ -1,7 +1,7 @@
 # Live Generic IMAP-to-IMAP Migration Validation Report
 
 **Date**: July 27, 2026  
-**Tested Commit SHA**: `5813bc51f0883caf9c9bcffdfe292ba8b1d8e040`  
+**Tested Commit SHA**: `251a0220923b714d0a392afec446d7a3373cea1a`  
 **Environment**: Windows 11, Node.js `v24.18.0`, SQLite `migrationos.db` via Prisma `v6.19.3`  
 **API Endpoint**: `http://localhost:4000`  
 **Web Endpoint**: `http://localhost:3001`  
@@ -10,11 +10,11 @@
 
 ## 1. Executive Summary & Credentials Inspection
 
-This report presents the forensic verification and live validation status of the Generic IMAP-to-IMAP Migration MVP in MigrationOS.
+This report documents the forensic verification and live validation status of the Generic IMAP-to-IMAP Migration MVP in MigrationOS.
 
 > [!WARNING]
 > **Real External IMAP Servers Used**: **No**  
-> **Technical Reason**: Querying the database (`apps/api/prisma/migrationos.db`) using `@prisma/client` returns `MIGRATION_RECORD_COUNT: 1`. The single record (`id: 4235946d-be99-4e97-962e-f9d29f0dea6a`) is the mock test migration with dummy email `test-source@example.com` and ciphertext payload `'encrypted-secret-payload'`. Calling `decrypt()` on the stored payload fails with `Data tampering or incorrect key detected`. No new migration record containing valid external IMAP credentials has been persisted to the database. Because valid external IMAP credentials are not present in the local database or environment, actual live message transfer against external IMAP servers was not executed on live mailboxes.
+> **Technical Reason**: Inspection of the SQLite database (`apps/api/prisma/migrationos.db`) using the application's configured `ENCRYPTION_KEY` confirms `MIGRATION_RECORD_COUNT: 1`. The single record (`id: 01454e40-cb78-4aba-beee-7d27827897d2`) is a mock test migration containing dummy text (`encrypted-secret-payload`), which fails AES-256-GCM decryption checks. No new migration record containing valid external IMAP credentials has been saved to the database. Because valid external IMAP credentials are not present in the local database or environment, actual live message transfer against external IMAP servers was not executed on live mailboxes.
 
 All application logic, worker execution loops, checkpoint resumption, duplicate prevention (idempotency), error redaction, and database models have been verified through static analysis and 17 automated unit and integration tests.
 
