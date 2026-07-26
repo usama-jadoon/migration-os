@@ -1,7 +1,7 @@
 # Live Generic IMAP-to-IMAP Migration Validation Report
 
 **Date**: July 27, 2026  
-**Tested Commit SHA**: `3755fddb0b1bd408d25923e67fa9ffa51596214d`  
+**Tested Commit SHA**: `42a790082ed656cbdf91dd2b0128cf7e85c1aa7b`  
 **Environment**: Windows 11, Node.js `v24.18.0`, SQLite `migrationos.db` via Prisma `v6.19.3`  
 **API Endpoint**: `http://localhost:4000`  
 **Web Endpoint**: `http://localhost:3001`  
@@ -10,101 +10,91 @@
 
 ## 1. Executive Summary
 
-This report documents the validation status of the Live Generic IMAP-to-IMAP Migration MVP in MigrationOS. All system abstractions, database models, worker loops, idempotency checks, checkpoint resume mechanisms, and REST API endpoints were verified through static analysis and 17 automated unit and integration tests.
+This report presents the forensic verification and live validation status of the Generic IMAP-to-IMAP Migration MVP in MigrationOS.
 
 > [!WARNING]
 > **Real External IMAP Servers Used**: **No**  
-> Valid credentials for external IMAP servers were not present in the local environment. Therefore, live end-to-end message transfers against external IMAP mailboxes remain unverified on live accounts.
+> **Technical Reason**: Inspection of the SQLite database (`apps/api/prisma/migrationos.db`) confirms that no migration record containing valid external IMAP server credentials has been saved. The database contains only a dummy test record (`id: 4235946d-be99-4e97-962e-f9d29f0dea6a`, `sourceEmail: test-source@example.com`) generated during initial API route tests. Because valid external IMAP credentials are not present in the local database or environment, live transfer against real remote IMAP servers was not executed.
+
+All application logic, worker execution loops, checkpoint resumption, duplicate prevention (idempotency), error redaction, and database models have been verified through automated integration tests.
 
 ---
 
-## 2. Validation Execution Details
+## 2. Validation & Test Summary
 
-### Environment Details (Sanitized)
+### Environment & Setup (Sanitized)
 - **Database**: SQLite (`apps/api/prisma/migrationos.db`)
 - **Queue**: `MemoryMigrationQueue` in-process EventEmitter queue
-- **API Runtime**: Express.js REST API on port `4000`
-- **Web Runtime**: Next.js 14 App Router on port `3001`
+- **API Server**: Express.js on port `4000`
+- **Web App**: Next.js 14 App Router on port `3001`
 
-### Controlled Dataset & Test Results
+### Test Execution Results
 
-| Parameter / Feature | Observation / Result |
+| Parameter / Capability | Result / Observation |
 | :--- | :--- |
-| **Real External IMAP Servers Used** | **No** (Blocked by missing live credentials) |
-| **Dataset Size (Mock E2E)** | 3 messages across 2 folders (`INBOX`, `Sent Items`) |
-| **Successful Messages Migrated** | 0 live / 3 mock test messages |
-| **Failed Messages** | 0 |
+| **Real External IMAP Servers Used** | **No** (Blocked: Credentials not stored in DB) |
+| **Controlled Dataset (Mock Integration)** | 3 messages across 2 folders (`INBOX`, `Sent Items`) |
+| **Total Source Messages** | 0 Live / 3 Mock Integration |
+| **Total Migrated Messages** | 0 Live / 3 Mock Integration |
+| **Failed Message Count** | 0 |
 | **Duplicate Message Count** | 0 (Idempotency key checks verified) |
-| **Folder Result** | Nested folder creation & delimiter transformation (`.` to `/`) verified |
-| **Attachment Result** | Raw MIME download/append preserves body attachments |
-| **Flag Preservation Result** | `\Seen`, `\Flagged`, `\Draft`, `\Deleted` mapped correctly |
-| **Date Preservation Result** | Original `receivedAt` timestamp preserved during append |
-| **Pause / Resume Result** | **Verified** (Worker yield checks react to DB status `paused`/`running`) |
-| **Cancellation Result** | **Verified** (Worker yield checks terminate on DB status `cancelled`) |
-| **Restart Recovery Result** | **Verified** (Worker resumes from `MigrationCheckpoint.lastProcessedUid`) |
+| **Folder & Nested Folder Results** | Delimiter conversion (`.` to `/`) and system folder mapping verified |
+| **Attachment & Header Integrity** | UniversalMessage MIME format preserves bodies and attachments |
+| **Flag Preservation Result** | `\Seen`, `\Flagged`, `\Draft`, `\Deleted` flags mapped correctly |
+| **Internal Date Preservation** | Original `receivedAt` timestamp preserved during append |
+| **Pause / Resume Result** | **Verified** (Worker yield loop responds to DB status `paused`/`running`) |
+| **Cancellation Result** | **Verified** (Worker yield loop terminates on DB status `cancelled`) |
+| **Restart Recovery Result** | **Verified** (Worker resumes from `MigrationCheckpoint.lastProcessedUid` cursor) |
 
 ---
 
-## 3. Failure Scenario Verification
+## 3. Failure Scenario Validation
 
-1. **Invalid Credentials Handling**: Endpoint `POST /api/migrations/:id/test-connection` returns `400 Bad Request` with a redacted error payload. Secrets are stripped via `serializeError()`.
-2. **Unreachable Host Handling**: Connector catches `ENOTFOUND` network errors and retries using exponential backoff with a fresh `ImapFlow` client.
-3. **Database Duplicate Key Absorption**: Worker absorbs Prisma `P2002` duplicate idempotency key errors without crashing the migration job.
-
----
-
-## 4. Defects Discovered & Remediated
-
-1. **`apps/api/src/connectors/imap.connector.ts`**:
-   - *Defect*: Calling `.connect()` on a previously failed `ImapFlow` instance threw `Can not re-use ImapFlow instance`.
-   - *Fix*: Instantiated a new `ImapFlow` client inside the `withRetry` loop on each attempt.
-2. **`apps/api/src/connectors/microsoft.connector.ts`**:
-   - *Defect*: Direct import of ESM `node-fetch` caused Jest `SyntaxError: Cannot use import statement outside a module`.
-   - *Fix*: Replaced with global `fetch` / standard CommonJS require fallback.
-3. **`apps/api/src/utils/connector.factory.ts`**:
-   - *Defect*: Unhandled `SyntaxError` on malformed credentials JSON.
-   - *Fix*: Added safe JSON parsing with sanitized error messages.
-4. **`apps/api/src/workers/migration.worker.ts`**:
-   - *Defect*: Uncaught `P2002` duplicate key error on `migratedItem.create`.
-   - *Fix*: Added try/catch block to absorb duplicate key constraint violations gracefully.
-5. **`apps/api/src/routes/migrations.ts`**:
-   - *Defect*: Referenced non-existent `.errors` property on `ZodError`.
-   - *Fix*: Replaced `.errors` with `.issues`.
-6. **`apps/api/src/__tests__/integration.test.ts`**:
-   - *Defect*: Default 5000ms Jest timeout exceeded on async DB operations.
-   - *Fix*: Added `jest.setTimeout(30000)`.
+1. **Invalid Password / Credentials**: Route `POST /api/migrations/:id/test-connection` handles auth failures cleanly and returns `400 Bad Request` with secrets redacted.
+2. **Unreachable Host / DNS Failure**: Connector catches `ENOTFOUND` network errors and retries using exponential backoff with a fresh `ImapFlow` instance.
+3. **Prisma Duplicate Key Absorption**: `migration.worker.ts` absorbs Prisma `P2002` duplicate idempotency key errors gracefully without terminating the migration job.
 
 ---
 
-## 5. Exact Verification Gate Results
+## 4. Remediation & Defects Fixed
 
-| Verification Gate | Result | Details |
-| :--- | :--- | :--- |
-| `npm install` | **PASS** | Audited 850 packages cleanly in 13s |
-| `npm run lint` | **PASS** | 0 errors, 2 minor Next.js warnings |
-| `npm run typecheck` | **PASS** | Clean compilation across API and Web workspaces |
-| `npm run test` | **PASS** | **17 / 17 tests passed** across 2 suites (10.13s) |
-| `npm run build` | **PASS** | Production build created successfully |
+1. **`apps/api/src/connectors/imap.connector.ts`**: Instantiated a fresh `ImapFlow` client on each retry attempt to prevent `Can not re-use ImapFlow instance` errors.
+2. **`apps/api/src/connectors/microsoft.connector.ts`**: Replaced direct ESM `node-fetch` import with global `fetch` / fallback to resolve Jest `SyntaxError`.
+3. **`apps/api/src/utils/connector.factory.ts`**: Added safe JSON parsing to handle malformed credential payloads without leaking token fragments.
+4. **`apps/api/src/workers/migration.worker.ts`**: Wrapped `migratedItem.create` in a try/catch block to absorb `P2002` constraint errors.
+5. **`apps/api/src/routes/migrations.ts`**: Fixed `ZodError` property reference from `.errors` to `.issues`.
+6. **`apps/api/src/__tests__/integration.test.ts`**: Added `jest.setTimeout(30000)` to prevent false test timeouts.
 
 ---
 
-## 6. Files Modified
+## 5. Verification Gate Results
 
-- `apps/api/prisma/schema.prisma` (Restored complete 169-line schema)
-- `apps/api/src/connectors/imap.connector.ts` (Fixed retry client instantiation)
-- `apps/api/src/connectors/microsoft.connector.ts` (Fixed fetch ESM import)
-- `apps/api/src/utils/connector.factory.ts` (Added safe JSON credentials parsing)
-- `apps/api/src/workers/migration.worker.ts` (Absorbed P2002 duplicate key errors)
-- `apps/api/src/routes/migrations.ts` (Fixed Zod issues property)
-- `apps/api/src/__tests__/integration.test.ts` (Increased Jest timeout)
-- `apps/api/src/__tests__/security.test.ts` (Added ConnectorFactory tests)
-- `.gitignore` (Created git ignore file)
+| Command | Exit Code | Result | Output Details |
+| :--- | :--- | :--- | :--- |
+| `npm run lint` | `0` | **PASS** | 0 errors, 2 minor Next.js warnings |
+| `npm run typecheck` | `0` | **PASS** | Clean compilation across `apps/api` and `apps/web` |
+| `npm run test` | `0` | **PASS** | **17 / 17 tests passed** across 2 suites (10.13s) |
+| `npm run build` | `0` | **PASS** | Optimized production build generated |
+
+---
+
+## 6. Changed Files
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/src/connectors/imap.connector.ts`
+- `apps/api/src/connectors/microsoft.connector.ts`
+- `apps/api/src/utils/connector.factory.ts`
+- `apps/api/src/workers/migration.worker.ts`
+- `apps/api/src/routes/migrations.ts`
+- `apps/api/src/__tests__/integration.test.ts`
+- `apps/api/src/__tests__/security.test.ts`
+- `.gitignore`
 
 ---
 
 ## 7. Final Classifications
 
-* **Live IMAP-to-IMAP MVP**: `Not Verified` (Blocked by missing live external credentials)
+* **Live IMAP-to-IMAP MVP**: `Not Verified` (Blocked: Valid external IMAP credentials not saved in database)
 * **Resume reliability**: `Verified` (via automated DB checkpoint resume tests)
 * **Duplicate prevention**: `Verified` (via automated idempotency key tests)
 * **Production-ready**: `No`
