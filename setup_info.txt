@@ -1,0 +1,4 @@
+# MigrationOS
+
+This file will hold initial setup information for the MigrationOS project.
+Folder structure creation will be addressed by attempting to write files directly since shell access remains unavailable.

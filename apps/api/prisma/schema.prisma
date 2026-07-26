@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./migrationos.db"
+}
+
+model ProviderConnection {
+  id                String      @id @default(uuid())
+  provider          String      // imap, google, microsoft
+  email             String
+  credentials       String      // Encrypted credentials JSON
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  sourceMigrations  Migration[] @relation("SourceConnection")
+  destMigrations    Migration[] @relation("DestConnection")
+}
+
+model Migration {
+  id                String            @id @default(uuid())
+  status            String            @default("draft")
+  // Status values: draft, validating, ready, queued, running, paused, cancelling, cancelled, completed, completed_with_errors, failed
+
+  sourceProvider    String
+  sourceEmail       String
+  sourceCredentials String?           // Encrypted credentials JSON (fallback/direct)
+  destProvider      String
+  destEmail         String
+  destCredentials   String?           // Encrypted credentials JSON (fallback/direct)
+
+  sourceConnectionId String?
+  sourceConnection   ProviderConnection? @relation("SourceConnection", fields: [sourceConnectionId], references: [id])
+  destConnectionId   String?
+  destConnection     ProviderConnection? @relation("DestConnection", fields: [destConnectionId], references: [id])
+
+  totalMessages     Int               @default(0)
+  migratedMessages  Int               @default(0)
+  failedMessages    Int               @default(0)
+  totalSizeBytes    BigInt            @default(0)
+  migratedSizeBytes BigInt            @default(0)
+
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  folders           MigrationFolder[] // Kept for compatibility with existing queries
+  folderMappings    FolderMapping[]
+  mailboxMappings   MailboxMapping[]
+  checkpoints       MigrationCheckpoint[]
+  migratedItems     MigratedItem[]
+  errors            MigrationError[]
+  logs              MigrationLog[]
+  events            MigrationEvent[]
+}
+
+model MigrationFolder {
+  id              String    @id @default(uuid())
+  migrationId     String
+  migration       Migration @relation(fields: [migrationId], references: [id])
+
+  sourceFolderName String
+  destFolderName   String
+  status           String   @default("pending")
+  totalMessages    Int      @default(0)
+  migratedMessages Int      @default(0)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model FolderMapping {
+  id               String    @id @default(uuid())
+  migrationId      String
+  migration        Migration @relation(fields: [migrationId], references: [id])
+
+  sourceFolderName String
+  destFolderName   String
+  enabled          Boolean   @default(true)
+  status           String    @default("pending") // pending, running, completed, failed
+  totalMessages    Int       @default(0)
+  migratedMessages Int       @default(0)
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([migrationId, sourceFolderName])
+}
+
+model MailboxMapping {
+  id               String    @id @default(uuid())
+  migrationId      String
+  migration        Migration @relation(fields: [migrationId], references: [id])
+
+  sourceMailbox    String
+  destMailbox      String
+  createdAt        DateTime  @default(now())
+}
+
+model MigrationCheckpoint {
+  id               String    @id @default(uuid())
+  migrationId      String
+  migration        Migration @relation(fields: [migrationId], references: [id])
+
+  folderName       String
+  lastProcessedUid String?   // Cursor or last processed message UID
+  processedCount   Int       @default(0)
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([migrationId, folderName])
+}
+
+model MigratedItem {
+  id               String    @id @default(uuid())
+  migrationId      String
+  migration        Migration @relation(fields: [migrationId], references: [id])
+
+  idempotencyKey   String    @unique
+  sourceItemId     String
+  folderName       String
+  createdAt        DateTime  @default(now())
+
+  @@index([migrationId])
+  @@index([idempotencyKey])
+}
+
+model MigrationError {
+  id            String    @id @default(uuid())
+  migrationId   String
+  migration     Migration @relation(fields: [migrationId], references: [id])
+
+  messageId     String?
+  folderName    String?
+  errorMessage  String
+  retryCount    Int       @default(0)
+  resolved      Boolean   @default(false)
+
+  createdAt     DateTime  @default(now())
+}
+
+model MigrationLog {
+  id            String    @id @default(uuid())
+  migrationId   String
+  migration     Migration @relation(fields: [migrationId], references: [id])
+
+  level         String    // info, warn, error
+  message       String
+  createdAt     DateTime  @default(now())
+}
+
+model MigrationEvent {
+  id            String    @id @default(uuid())
+  migrationId   String
+  migration     Migration @relation(fields: [migrationId], references: [id])
+
+  eventType     String    // connection_test, status_change, error
+  description   String
+  createdAt     DateTime  @default(now())
+}
+
+model AuditLog {
+  id            String    @id @default(uuid())
+  action        String    // create_migration, update_credentials, start_job, pause_job, etc.
+  details       String    // JSON details
+  createdAt     DateTime  @default(now())
+}
