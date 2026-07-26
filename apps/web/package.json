@@ -2,8 +2,9 @@
   "name": "migration-web",
   "version": "1.0.0",
   "scripts": {
+    "clean": "rimraf .next",
     "dev": "next dev",
-    "build": "next build",
+    "build": "rimraf .next && next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"

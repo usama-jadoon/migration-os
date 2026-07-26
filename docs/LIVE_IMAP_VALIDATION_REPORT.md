@@ -4,19 +4,19 @@
 **Tested Commit SHA**: `251a0220923b714d0a392afec446d7a3373cea1a`  
 **Environment**: Windows 11, Node.js `v24.18.0`, SQLite `migrationos.db` via Prisma `v6.19.3`  
 **API Endpoint**: `http://localhost:4000`  
-**Web Endpoint**: `http://localhost:3001`  
+**Web Endpoint**: `http://localhost:3002`  
 
 ---
 
 ## 1. Executive Summary & Credentials Inspection
 
-This report documents the forensic verification and live validation status of the Generic IMAP-to-IMAP Migration MVP in MigrationOS.
+This report presents the forensic verification and live validation status of the Generic IMAP-to-IMAP Migration MVP in MigrationOS.
 
 > [!WARNING]
 > **Real External IMAP Servers Used**: **No**  
-> **Technical Reason**: Inspection of the SQLite database (`apps/api/prisma/migrationos.db`) using the application's configured `ENCRYPTION_KEY` confirms `MIGRATION_RECORD_COUNT: 1`. The single record (`id: 01454e40-cb78-4aba-beee-7d27827897d2`) is a mock test migration containing dummy text (`encrypted-secret-payload`), which fails AES-256-GCM decryption checks. No new migration record containing valid external IMAP credentials has been saved to the database. Because valid external IMAP credentials are not present in the local database or environment, actual live message transfer against external IMAP servers was not executed on live mailboxes.
+> **Technical Reason**: Querying the database (`apps/api/prisma/migrationos.db`) using `@prisma/client` returns `MIGRATION_RECORD_COUNT: 1`. The single record (`id: 4235946d-be99-4e97-962e-f9d29f0dea6a`) is the mock test migration with dummy email `test-source@example.com` and ciphertext payload `'encrypted-secret-payload'`. Calling `decrypt()` on the stored payload fails with `Data tampering or incorrect key detected`. No new migration record containing valid external IMAP credentials has been persisted to the database. Because valid external IMAP credentials are not present in the local database or environment, actual live message transfer against external IMAP servers was not executed on live mailboxes.
 
-All application logic, worker execution loops, checkpoint resumption, duplicate prevention (idempotency), error redaction, and database models have been verified through static analysis and 17 automated unit and integration tests.
+All application logic, worker execution loops, checkpoint resumption, duplicate prevention (idempotency), error redaction, database models, and Next.js frontend pages have been verified through static analysis and 17 automated unit and integration tests.
 
 ---
 
@@ -26,7 +26,7 @@ All application logic, worker execution loops, checkpoint resumption, duplicate 
 - **Database**: SQLite (`apps/api/prisma/migrationos.db`)
 - **Queue**: `MemoryMigrationQueue` in-process EventEmitter queue
 - **API Server**: Express.js on port `4000`
-- **Web App**: Next.js 14 App Router on port `3001`
+- **Web App**: Next.js 14 App Router on port `3002`
 
 ### Test Execution Results
 
@@ -56,14 +56,25 @@ All application logic, worker execution loops, checkpoint resumption, duplicate 
 
 ---
 
-## 4. Remediation & Defects Fixed
+## 4. Defects Discovered & Remediated
 
-1. **`apps/api/src/connectors/imap.connector.ts`**: Instantiated a fresh `ImapFlow` client on each retry attempt to prevent `Can not re-use ImapFlow instance` errors.
-2. **`apps/api/src/connectors/microsoft.connector.ts`**: Replaced direct ESM `node-fetch` import with global `fetch` / fallback to resolve Jest `SyntaxError`.
-3. **`apps/api/src/utils/connector.factory.ts`**: Added safe JSON parsing to handle malformed credential payloads without leaking token fragments.
-4. **`apps/api/src/workers/migration.worker.ts`**: Wrapped `migratedItem.create` in a try/catch block to absorb `P2002` constraint errors.
-5. **`apps/api/src/routes/migrations.ts`**: Fixed `ZodError` property reference from `.errors` to `.issues`.
-6. **`apps/api/src/__tests__/integration.test.ts`**: Added `jest.setTimeout(30000)` to prevent false test timeouts.
+1. **Next.js Runtime Webpack Chunk Error (`Cannot find module './592.js'`)**:
+   - *Defect*: Next.js server runtime failed with `Cannot find module './592.js'` due to stale Webpack compilation cache in `.next`.
+   - *Root Cause*: Stale Webpack chunk files generated in previous build steps were referenced by server-side rendering modules but missing from disk.
+   - *Fix*: Updated `apps/web/package.json` to include an explicit `"clean": "rimraf .next"` script and updated build script to `"build": "rimraf .next && next build"`. Cleared `.next` cache and executed a fresh, clean build. Verified `/dashboard` and `/dashboard/new` render with `200 OK` without Webpack errors.
+2. **`apps/api/src/connectors/imap.connector.ts`**:
+   - *Defect*: Calling `.connect()` on a previously failed `ImapFlow` instance threw `Can not re-use ImapFlow instance`.
+   - *Fix*: Instantiated a fresh `ImapFlow` client on each retry attempt to prevent `Can not re-use ImapFlow instance` errors.
+3. **`apps/api/src/connectors/microsoft.connector.ts`**:
+   - *Defect*: Replaced direct ESM `node-fetch` import with global `fetch` / fallback to resolve Jest `SyntaxError`.
+4. **`apps/api/src/utils/connector.factory.ts`**:
+   - *Defect*: Added safe JSON parsing to handle malformed credential payloads without leaking token fragments.
+5. **`apps/api/src/workers/migration.worker.ts`**:
+   - *Defect*: Wrapped `migratedItem.create` in a try/catch block to absorb `P2002` constraint errors.
+6. **`apps/api/src/routes/migrations.ts`**:
+   - *Defect*: Fixed `ZodError` property reference from `.errors` to `.issues`.
+7. **`apps/api/src/__tests__/integration.test.ts`**:
+   - *Defect*: Added `jest.setTimeout(30000)` to prevent false test timeouts.
 
 ---
 
@@ -74,12 +85,13 @@ All application logic, worker execution loops, checkpoint resumption, duplicate 
 | `npm run lint` | `0` | **PASS** | 0 errors, 2 minor Next.js warnings |
 | `npm run typecheck` | `0` | **PASS** | Clean compilation across `apps/api` and `apps/web` |
 | `npm run test` | `0` | **PASS** | **17 / 17 tests passed** across 2 suites (18.08s) |
-| `npm run build` | `0` | **PASS** | Optimized production build generated |
+| `npm run build` | `0` | **PASS** | Clean build (`rimraf .next && next build`) succeeded |
 
 ---
 
 ## 6. Changed Files
 
+- `apps/web/package.json` (Added `rimraf .next` clean build script)
 - `apps/api/prisma/schema.prisma`
 - `apps/api/src/connectors/imap.connector.ts`
 - `apps/api/src/connectors/microsoft.connector.ts`
