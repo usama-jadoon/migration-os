@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
+import { google } from 'googleapis';
 import { prisma } from '../utils/db';
 import { hashPassword, verifyPassword, createSession } from '../utils/auth';
 import { authenticateSession, AuthenticatedRequest } from '../middleware/auth.middleware';
@@ -40,7 +41,7 @@ authRoutes.post('/signup', async (req, res) => {
 
     const orgName = organizationName || `${name}'s Organization`;
     const slug = `${orgName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`;
-    
+
     const org = await prisma.organization.create({
       data: {
         name: orgName,
@@ -246,5 +247,72 @@ authRoutes.post('/switch-org', authenticateSession, async (req: AuthenticatedReq
   } catch (err: any) {
     logger.error('[AuthRoute] Switch org error:', { error: err.message });
     return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Google OAuth 2.0 Endpoints
+authRoutes.get('/google/url', authenticateSession, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/oauth/google/callback';
+
+    if (!clientId || !clientSecret) {
+      return res.status(400).json({
+        error: 'Google OAuth is not configured. Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET.',
+      });
+    }
+
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+
+    const scopes = [
+      'https://mail.google.com/',
+      'https://www.googleapis.com/auth/userinfo.email',
+      'https://www.googleapis.com/auth/userinfo.profile',
+    ];
+
+    const url = oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      prompt: 'consent',
+      scope: scopes,
+      state: req.organizationId,
+    });
+
+    return res.json({ url });
+  } catch (err: any) {
+    logger.error('[AuthRoute] Google OAuth URL generation error:', { error: err.message });
+    return res.status(500).json({ error: 'Failed to generate Google OAuth URL' });
+  }
+});
+
+authRoutes.post('/google/token', authenticateSession, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { code } = req.body;
+    if (!code) {
+      return res.status(400).json({ error: 'Authorization code is required' });
+    }
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/oauth/google/callback';
+
+    if (!clientId || !clientSecret) {
+      return res.status(400).json({
+        error: 'Google OAuth is not configured. Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET.',
+      });
+    }
+
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+    const { tokens } = await oauth2Client.getToken(code);
+
+    return res.json({
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expiry_date: tokens.expiry_date,
+      token_type: tokens.token_type,
+    });
+  } catch (err: any) {
+    logger.error('[AuthRoute] Google OAuth token exchange error:', { error: err.message });
+    return res.status(400).json({ error: 'Failed to exchange Google OAuth code for tokens', details: err.message });
   }
 });

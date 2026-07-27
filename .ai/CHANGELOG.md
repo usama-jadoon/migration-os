@@ -4,7 +4,24 @@ All notable changes to the MigrationOS platform are documented in this file.
 
 ---
 
-## [Unreleased] - SaaS Core Security & AI Operating System
+## [Unreleased] - Phase 6: Microsoft 365 / Exchange Connector
+
+---
+
+## [1.1.0-google-connector] - 2026-07-27
+
+### Added
+- Implemented Google OAuth 2.0 Authorization Code Flow endpoints (`GET /api/auth/google/url`, `POST /api/auth/google/token`).
+- Hardened `GoogleConnector` in `apps/api/src/connectors/google.connector.ts` using `googleapis` v173.
+- Implemented label-to-folder mapping (`INBOX`, `SENT` &rarr; `Sent Items`, `TRASH` &rarr; `Trash`, `SPAM` &rarr; `Junk Email`, `DRAFT` &rarr; `Drafts`, custom user labels).
+- Added RFC822 raw MIME extraction and base64url import via `users.messages.insert`.
+- Added exponential backoff retry wrapper (`withRetry`) for Google API rate limit handling.
+- Added incremental synchronization support via `q` query parameters.
+- Created `google_connector.test.ts` test suite with 8 automated unit & integration tests (`42/42 total tests passing`).
+
+---
+
+## [1.0.1-saas-security] - 2026-07-27
 
 ### Added
 - Created `.ai/` AI Operating System documentation suite (14 core documents).
@@ -13,25 +30,3 @@ All notable changes to the MigrationOS platform are documented in this file.
 - Added RBAC middleware enforcing `owner`, `admin`, `operator`, and `viewer` roles.
 - Enforced mandatory `organizationId` filtering across all API endpoints, background worker jobs, and Socket.io real-time rooms (`org:${id}`).
 - Created `saas_security.test.ts` suite with 11 automated security and multi-tenant isolation tests.
-
----
-
-## [1.0.0-foundation] - 2026-07-27
-
-### Added
-- Implemented PostgreSQL database provider support via `DATABASE_PROVIDER` configuration.
-- Added Redis and BullMQ queue adapter (`RedisMigrationQueue`) with exponential retry backoff and dead-letter queue (DLQ) support.
-- Added worker graceful shutdown signal handlers (`SIGTERM`/`SIGINT`).
-- Expanded `/health` REST endpoint returning database health, queue provider status, uptime, and timestamp.
-- Created `docker-compose.yml` specifying PostgreSQL 16, Redis 7, Express API, and Next.js frontend services.
-- Created `production_foundation.test.ts` test suite.
-
-### Fixed
-- Fixed Next.js runtime Webpack chunk error (`Cannot find module './592.js'`) by adding `rimraf .next` clean build script in `apps/web/package.json`.
-- Fixed `ImapConnector` retry client re-use bug by instantiating fresh `ImapFlow` instance per retry attempt.
-- Fixed `microsoft.connector.ts` ESM `node-fetch` SyntaxError in Jest by adopting global `fetch`.
-- Wrapped `migratedItem.create` in try/catch block to absorb Prisma `P2002` duplicate key errors.
-
-### Security
-- Verified AES-256-GCM credential encryption prior to database storage.
-- Added automatic password and token redaction in `logger.ts` structured logs and Express API JSON responses.
