@@ -4,7 +4,13 @@ All notable changes to the MigrationOS platform are documented in this file.
 
 ---
 
-## [Unreleased] - Phase 8: Enterprise Compliance & Audit Logging
+## [1.4.0-enterprise-compliance] - 2026-07-27
+
+### Added
+- Implemented `ComplianceService` in `apps/api/src/services/compliance.service.ts` managing SOC 2 audit trail queries, CSV log export, retention log purging, and GDPR Right to Be Forgotten Data Erasure.
+- Implemented Express compliance REST endpoints in `apps/api/src/routes/compliance.ts` (`GET /api/compliance/audit-logs`, `POST /api/compliance/retention-purge`, `POST /api/compliance/data-erasure`).
+- Added RBAC role enforcement on compliance endpoints (`owner` / `admin` required for audit logs & retention, `owner` required for data erasure).
+- Created automated test suite `compliance.test.ts` with 5 unit & integration tests (**61/61 total tests passing across 8 suites**).
 
 ---
 
@@ -15,7 +21,7 @@ All notable changes to the MigrationOS platform are documented in this file.
 - Implemented `BillingService` in `apps/api/src/services/billing.service.ts` managing plan specs, usage aggregation, quota limit checks (`checkMigrationLimit`), and Stripe Checkout Session creation.
 - Implemented Express billing REST endpoints in `apps/api/src/routes/billing.ts` (`GET /api/billing/subscription`, `POST /api/billing/checkout`, `POST /api/billing/upgrade`, `POST /api/billing/webhook`).
 - Added tier quota limit gating on `POST /api/migrations` and `POST /api/migrations/:id/start` returning `HTTP 402 Payment Required` when quota limits are exceeded.
-- Added automated test suite `billing.test.ts` with 6 unit and integration tests (**56/56 total tests passing across 7 suites**).
+- Added automated test suite `billing.test.ts` with 6 unit and integration tests.
 
 ---
 
