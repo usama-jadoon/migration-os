@@ -7,47 +7,106 @@ datasource db {
   url      = "file:./migrationos.db"
 }
 
-model ProviderConnection {
-  id                String      @id @default(uuid())
-  provider          String      // imap, google, microsoft
-  email             String
-  credentials       String      // Encrypted credentials JSON
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  name          String
+  passwordHash  String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  sourceMigrations  Migration[] @relation("SourceConnection")
-  destMigrations    Migration[] @relation("DestConnection")
+  memberships   OrganizationMembership[]
+  sessions      Session[]
+}
+
+model Organization {
+  id            String   @id @default(uuid())
+  name          String
+  slug          String   @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  memberships         OrganizationMembership[]
+  providerConnections ProviderConnection[]
+  migrations          Migration[]
+  auditLogs           AuditLog[]
+}
+
+model OrganizationMembership {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String       // owner, admin, operator, viewer
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId])
+}
+
+model Session {
+  id             String   @id @default(uuid())
+  token          String   @unique
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String?
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+}
+
+model ProviderConnection {
+  id                String       @id @default(uuid())
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provider          String       // imap, google, microsoft
+  email             String
+  credentials       String       // Encrypted credentials JSON
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  sourceMigrations  Migration[]  @relation("SourceConnection")
+  destMigrations    Migration[]  @relation("DestConnection")
+
+  @@index([organizationId])
 }
 
 model Migration {
-  id                String            @id @default(uuid())
-  status            String            @default("draft")
-  // Status values: draft, validating, ready, queued, running, paused, cancelling, cancelled, completed, completed_with_errors, failed
+  id                String              @id @default(uuid())
+  organizationId    String
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  status            String              @default("draft")
 
   sourceProvider    String
   sourceEmail       String
-  sourceCredentials String?           // Encrypted credentials JSON (fallback/direct)
+  sourceCredentials String?             // Encrypted credentials JSON
   destProvider      String
   destEmail         String
-  destCredentials   String?           // Encrypted credentials JSON (fallback/direct)
+  destCredentials   String?             // Encrypted credentials JSON
 
   sourceConnectionId String?
   sourceConnection   ProviderConnection? @relation("SourceConnection", fields: [sourceConnectionId], references: [id])
   destConnectionId   String?
   destConnection     ProviderConnection? @relation("DestConnection", fields: [destConnectionId], references: [id])
 
-  totalMessages     Int               @default(0)
-  migratedMessages  Int               @default(0)
-  failedMessages    Int               @default(0)
-  totalSizeBytes    BigInt            @default(0)
-  migratedSizeBytes BigInt            @default(0)
+  totalMessages     Int                 @default(0)
+  migratedMessages  Int                 @default(0)
+  failedMessages    Int                 @default(0)
+  totalSizeBytes    BigInt              @default(0)
+  migratedSizeBytes BigInt              @default(0)
 
+  createdByUserId   String?
   startedAt         DateTime?
   completedAt       DateTime?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
 
-  folders           MigrationFolder[] // Kept for compatibility with existing queries
+  folders           MigrationFolder[]
   folderMappings    FolderMapping[]
   mailboxMappings   MailboxMapping[]
   checkpoints       MigrationCheckpoint[]
@@ -55,115 +114,150 @@ model Migration {
   errors            MigrationError[]
   logs              MigrationLog[]
   events            MigrationEvent[]
+
+  @@index([organizationId])
+  @@index([organizationId, status])
 }
 
 model MigrationFolder {
-  id              String    @id @default(uuid())
-  migrationId     String
-  migration       Migration @relation(fields: [migrationId], references: [id])
+  id               String       @id @default(uuid())
+  migrationId      String
+  migration        Migration    @relation(fields: [migrationId], references: [id], onDelete: Cascade)
+  organizationId   String
 
   sourceFolderName String
   destFolderName   String
-  status           String   @default("pending")
-  totalMessages    Int      @default(0)
-  migratedMessages Int      @default(0)
+  status           String       @default("pending")
+  totalMessages    Int          @default(0)
+  migratedMessages Int          @default(0)
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([migrationId])
+  @@index([organizationId])
 }
 
 model FolderMapping {
-  id               String    @id @default(uuid())
+  id               String       @id @default(uuid())
   migrationId      String
-  migration        Migration @relation(fields: [migrationId], references: [id])
+  migration        Migration    @relation(fields: [migrationId], references: [id], onDelete: Cascade)
+  organizationId   String
 
   sourceFolderName String
   destFolderName   String
-  enabled          Boolean   @default(true)
-  status           String    @default("pending") // pending, running, completed, failed
-  totalMessages    Int       @default(0)
-  migratedMessages Int       @default(0)
+  enabled          Boolean      @default(true)
+  status           String       @default("pending")
+  totalMessages    Int          @default(0)
+  migratedMessages Int          @default(0)
 
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   @@unique([migrationId, sourceFolderName])
+  @@index([organizationId])
 }
 
 model MailboxMapping {
-  id               String    @id @default(uuid())
+  id               String       @id @default(uuid())
   migrationId      String
-  migration        Migration @relation(fields: [migrationId], references: [id])
+  migration        Migration    @relation(fields: [migrationId], references: [id], onDelete: Cascade)
+  organizationId   String
 
   sourceMailbox    String
   destMailbox      String
-  createdAt        DateTime  @default(now())
+  createdAt        DateTime     @default(now())
+
+  @@index([organizationId])
 }
 
 model MigrationCheckpoint {
-  id               String    @id @default(uuid())
+  id               String       @id @default(uuid())
   migrationId      String
-  migration        Migration @relation(fields: [migrationId], references: [id])
+  migration        Migration    @relation(fields: [migrationId], references: [id], onDelete: Cascade)
+  organizationId   String
 
   folderName       String
-  lastProcessedUid String?   // Cursor or last processed message UID
-  processedCount   Int       @default(0)
-  updatedAt        DateTime  @updatedAt
+  lastProcessedUid String?
+  processedCount   Int          @default(0)
+  updatedAt        DateTime     @updatedAt
 
   @@unique([migrationId, folderName])
+  @@index([organizationId])
 }
 
 model MigratedItem {
-  id               String    @id @default(uuid())
+  id               String       @id @default(uuid())
   migrationId      String
-  migration        Migration @relation(fields: [migrationId], references: [id])
+  migration        Migration    @relation(fields: [migrationId], references: [id], onDelete: Cascade)
+  organizationId   String
 
-  idempotencyKey   String    @unique
+  idempotencyKey   String       @unique
   sourceItemId     String
   folderName       String
-  createdAt        DateTime  @default(now())
+  createdAt        DateTime     @default(now())
 
   @@index([migrationId])
+  @@index([organizationId])
   @@index([idempotencyKey])
 }
 
 model MigrationError {
-  id            String    @id @default(uuid())
-  migrationId   String
-  migration     Migration @relation(fields: [migrationId], references: [id])
+  id               String       @id @default(uuid())
+  migrationId      String
+  migration        Migration    @relation(fields: [migrationId], references: [id], onDelete: Cascade)
+  organizationId   String
 
-  messageId     String?
-  folderName    String?
-  errorMessage  String
-  retryCount    Int       @default(0)
-  resolved      Boolean   @default(false)
+  messageId        String?
+  folderName       String?
+  errorMessage     String
+  retryCount       Int          @default(0)
+  resolved         Boolean      @default(false)
 
-  createdAt     DateTime  @default(now())
+  createdAt        DateTime     @default(now())
+
+  @@index([migrationId])
+  @@index([organizationId])
 }
 
 model MigrationLog {
-  id            String    @id @default(uuid())
-  migrationId   String
-  migration     Migration @relation(fields: [migrationId], references: [id])
+  id               String       @id @default(uuid())
+  migrationId      String
+  migration        Migration    @relation(fields: [migrationId], references: [id], onDelete: Cascade)
+  organizationId   String
 
-  level         String    // info, warn, error
-  message       String
-  createdAt     DateTime  @default(now())
+  level            String
+  message          String
+  createdAt        DateTime     @default(now())
+
+  @@index([migrationId])
+  @@index([organizationId])
 }
 
 model MigrationEvent {
-  id            String    @id @default(uuid())
-  migrationId   String
-  migration     Migration @relation(fields: [migrationId], references: [id])
+  id               String       @id @default(uuid())
+  migrationId      String
+  migration        Migration    @relation(fields: [migrationId], references: [id], onDelete: Cascade)
+  organizationId   String
 
-  eventType     String    // connection_test, status_change, error
-  description   String
-  createdAt     DateTime  @default(now())
+  eventType        String
+  description      String
+  createdAt        DateTime     @default(now())
+
+  @@index([migrationId])
+  @@index([organizationId])
 }
 
 model AuditLog {
-  id            String    @id @default(uuid())
-  action        String    // create_migration, update_credentials, start_job, pause_job, etc.
-  details       String    // JSON details
-  createdAt     DateTime  @default(now())
+  id               String        @id @default(uuid())
+  organizationId   String?
+  organization     Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  userId           String?
+  action           String
+  details          String
+  ipAddress        String?
+  createdAt        DateTime      @default(now())
+
+  @@index([organizationId])
+  @@index([userId])
 }

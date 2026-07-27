@@ -11,7 +11,6 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let isShuttingDown = false;
 
-// Register graceful shutdown handlers
 process.on('SIGTERM', handleGracefulShutdown);
 process.on('SIGINT', handleGracefulShutdown);
 
@@ -31,45 +30,56 @@ async function handleGracefulShutdown(signal: string) {
   }
 }
 
-// Register queue event listeners
 migrationQueue.on('added', (job) => {
   logger.info(`[Queue] Job ${job.id} queued.`);
 });
 
 migrationQueue.on('started', (job) => {
   logger.info(`[Worker] Starting migration job ${job.id}`);
-  runMigration(job.id);
+  const organizationId = job.data?.organizationId;
+  runMigration(job.id, organizationId);
 });
 
 migrationQueue.on('paused', (job) => {
   logger.info(`[Worker] Paused migration job ${job.id}`);
-  if (io) io.emit('migration:paused', { migrationId: job.id });
+  const orgId = job.data?.organizationId;
+  if (io && orgId) {
+    io.to(`org:${orgId}`).emit('migration:paused', { migrationId: job.id });
+  }
 });
 
 migrationQueue.on('resumed', (job) => {
   logger.info(`[Worker] Resumed migration job ${job.id}`);
-  if (io) io.emit('migration:resumed', { migrationId: job.id });
+  const orgId = job.data?.organizationId;
+  if (io && orgId) {
+    io.to(`org:${orgId}`).emit('migration:resumed', { migrationId: job.id });
+  }
 });
 
 migrationQueue.on('cancelled', (job) => {
   logger.info(`[Worker] Cancelled migration job ${job.id}`);
-  if (io) io.emit('migration:cancelled', { migrationId: job.id });
+  const orgId = job.data?.organizationId;
+  if (io && orgId) {
+    io.to(`org:${orgId}`).emit('migration:cancelled', { migrationId: job.id });
+  }
 });
 
-export async function runMigration(migrationId: string) {
+export async function runMigration(migrationId: string, organizationId?: string) {
   let source: MigrationConnector | null = null;
   let destination: MigrationConnector | null = null;
   const startTime = Date.now();
 
   try {
-    let migration = await prisma.migration.findUnique({
-      where: { id: migrationId },
+    let migration = await prisma.migration.findFirst({
+      where: organizationId ? { id: migrationId, organizationId } : { id: migrationId },
     });
 
     if (!migration) {
-      logger.error(`[Worker] Migration ${migrationId} not found.`);
+      logger.error(`[Worker] Migration ${migrationId} not found or tenant mismatched.`);
       return;
     }
+
+    const tenantId = migration.organizationId;
 
     if (migration.status !== 'queued' && migration.status !== 'running') {
       logger.warn(`[Worker] Migration ${migrationId} in unexpected status '${migration.status}'. Aborting.`);
@@ -82,7 +92,12 @@ export async function runMigration(migrationId: string) {
     });
 
     await prisma.migrationLog.create({
-      data: { migrationId, level: 'info', message: 'Decrypted credentials and connecting to endpoints...' },
+      data: {
+        migrationId,
+        organizationId: tenantId,
+        level: 'info',
+        message: 'Decrypted credentials and connecting to endpoints...',
+      },
     });
 
     const decryptedSourceCreds = migration.sourceCredentials ? decrypt(migration.sourceCredentials) : null;
@@ -95,7 +110,7 @@ export async function runMigration(migrationId: string) {
     await destination.authenticate();
 
     let folderMappings = await prisma.folderMapping.findMany({
-      where: { migrationId },
+      where: { migrationId, organizationId: tenantId },
     });
 
     if (folderMappings.length === 0) {
@@ -105,6 +120,7 @@ export async function runMigration(migrationId: string) {
         await prisma.folderMapping.create({
           data: {
             migrationId,
+            organizationId: tenantId,
             sourceFolderName: folder.path,
             destFolderName: folder.path,
             enabled: true,
@@ -113,7 +129,7 @@ export async function runMigration(migrationId: string) {
         });
       }
       folderMappings = await prisma.folderMapping.findMany({
-        where: { migrationId },
+        where: { migrationId, organizationId: tenantId },
       });
     }
 
@@ -128,6 +144,7 @@ export async function runMigration(migrationId: string) {
     await prisma.migrationLog.create({
       data: {
         migrationId,
+        organizationId: tenantId,
         level: 'info',
         message: `Beginning migration of ${activeMappings.length} mapped folders (${totalMessages} total messages).`,
       },
@@ -147,7 +164,12 @@ export async function runMigration(migrationId: string) {
       }
 
       await prisma.migrationLog.create({
-        data: { migrationId, level: 'info', message: `Migrating folder: ${mapping.sourceFolderName} -> ${mapping.destFolderName}` },
+        data: {
+          migrationId,
+          organizationId: tenantId,
+          level: 'info',
+          message: `Migrating folder: ${mapping.sourceFolderName} -> ${mapping.destFolderName}`,
+        },
       });
 
       await prisma.folderMapping.update({
@@ -170,21 +192,21 @@ export async function runMigration(migrationId: string) {
       while (hasMore) {
         if (isShuttingDown) return;
 
-        const currentMigration = await prisma.migration.findUnique({
-          where: { id: migrationId },
+        const currentMigration = await prisma.migration.findFirst({
+          where: { id: migrationId, organizationId: tenantId },
         });
 
         if (!currentMigration) return;
 
         if (currentMigration.status === 'paused') {
           await prisma.migrationLog.create({
-            data: { migrationId, level: 'info', message: 'Migration paused by user.' },
+            data: { migrationId, organizationId: tenantId, level: 'info', message: 'Migration paused by user.' },
           });
           while (true) {
             await sleep(1000);
             if (isShuttingDown) return;
-            const statusCheck = await prisma.migration.findUnique({
-              where: { id: migrationId },
+            const statusCheck = await prisma.migration.findFirst({
+              where: { id: migrationId, organizationId: tenantId },
             });
             if (!statusCheck || statusCheck.status === 'cancelled') return;
             if (statusCheck.status === 'running') break;
@@ -193,7 +215,7 @@ export async function runMigration(migrationId: string) {
 
         if (currentMigration.status === 'cancelled') {
           await prisma.migrationLog.create({
-            data: { migrationId, level: 'info', message: 'Migration cancelled by user.' },
+            data: { migrationId, organizationId: tenantId, level: 'info', message: 'Migration cancelled by user.' },
           });
           return;
         }
@@ -236,6 +258,7 @@ export async function runMigration(migrationId: string) {
               await prisma.migratedItem.create({
                 data: {
                   migrationId,
+                  organizationId: tenantId,
                   idempotencyKey,
                   sourceItemId: msg.sourceId,
                   folderName: mapping.sourceFolderName,
@@ -270,7 +293,7 @@ export async function runMigration(migrationId: string) {
             const remainingMins = speed > 0 ? Math.round(((totalMessages - globalMigratedCount) / speed) * 60) : 0;
 
             if (io) {
-              io.emit('migration:progress', {
+              const progressPayload = {
                 migrationId,
                 migratedMessages: globalMigratedCount,
                 totalMessages,
@@ -278,12 +301,16 @@ export async function runMigration(migrationId: string) {
                 currentFolder: mapping.sourceFolderName,
                 speed,
                 estimatedMinutesRemaining: Math.max(0, remainingMins),
-              });
+              };
+
+              io.to(`migration:${tenantId}:${migrationId}`).emit('migration:progress', progressPayload);
+              io.to(`org:${tenantId}`).emit('migration:progress', progressPayload);
             }
           } else {
             await prisma.migrationError.create({
               data: {
                 migrationId,
+                organizationId: tenantId,
                 messageId: msg.sourceId,
                 folderName: mapping.sourceFolderName,
                 errorMessage: serializeError(result.error || 'Import failed'),
@@ -311,6 +338,7 @@ export async function runMigration(migrationId: string) {
           },
           create: {
             migrationId,
+            organizationId: tenantId,
             folderName: mapping.sourceFolderName,
             lastProcessedUid: pageToken,
             processedCount: folderMigratedCount,
@@ -325,7 +353,7 @@ export async function runMigration(migrationId: string) {
       });
     }
 
-    const errorCount = await prisma.migrationError.count({ where: { migrationId } });
+    const errorCount = await prisma.migrationError.count({ where: { migrationId, organizationId: tenantId } });
     const finalStatus = errorCount > 0 ? 'completed_with_errors' : 'completed';
 
     await prisma.migration.update({
@@ -337,15 +365,23 @@ export async function runMigration(migrationId: string) {
     });
 
     await prisma.migrationLog.create({
-      data: { migrationId, level: 'info', message: `Migration completed: status is '${finalStatus}'.` },
+      data: {
+        migrationId,
+        organizationId: tenantId,
+        level: 'info',
+        message: `Migration completed: status is '${finalStatus}'.`,
+      },
     });
 
     if (io) {
-      io.emit('migration:completed', {
+      const completedPayload = {
         migrationId,
         totalMigrated: globalMigratedCount,
         totalFailed: errorCount,
-      });
+      };
+
+      io.to(`migration:${tenantId}:${migrationId}`).emit('migration:completed', completedPayload);
+      io.to(`org:${tenantId}`).emit('migration:completed', completedPayload);
     }
   } catch (error: any) {
     const errorMsg = serializeError(error);
@@ -357,11 +393,16 @@ export async function runMigration(migrationId: string) {
     });
 
     await prisma.migrationLog.create({
-      data: { migrationId, level: 'error', message: `Migration failed: ${errorMsg}` },
+      data: {
+        migrationId,
+        organizationId: organizationId || 'unknown',
+        level: 'error',
+        message: `Migration failed: ${errorMsg}`,
+      },
     });
 
-    if (io) {
-      io.emit('migration:error', {
+    if (io && organizationId) {
+      io.to(`org:${organizationId}`).emit('migration:error', {
         migrationId,
         error: errorMsg,
       });
