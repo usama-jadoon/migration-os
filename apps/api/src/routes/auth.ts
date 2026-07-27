@@ -316,3 +316,85 @@ authRoutes.post('/google/token', authenticateSession, async (req: AuthenticatedR
     return res.status(400).json({ error: 'Failed to exchange Google OAuth code for tokens', details: err.message });
   }
 });
+
+// Microsoft 365 OAuth 2.0 Endpoints
+authRoutes.get('/microsoft/url', authenticateSession, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const clientId = process.env.MICROSOFT_CLIENT_ID;
+    const tenantId = process.env.MICROSOFT_TENANT_ID || 'common';
+    const redirectUri = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:3000/oauth/microsoft/callback';
+
+    if (!clientId) {
+      return res.status(400).json({
+        error: 'Microsoft OAuth is not configured. Missing MICROSOFT_CLIENT_ID.',
+      });
+    }
+
+    const scopes = encodeURIComponent(
+      'https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/User.Read offline_access'
+    );
+
+    const url = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(
+      redirectUri
+    )}&response_mode=query&scope=${scopes}&state=${req.organizationId}`;
+
+    return res.json({ url });
+  } catch (err: any) {
+    logger.error('[AuthRoute] Microsoft OAuth URL generation error:', { error: err.message });
+    return res.status(500).json({ error: 'Failed to generate Microsoft OAuth URL' });
+  }
+});
+
+authRoutes.post('/microsoft/token', authenticateSession, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { code } = req.body;
+    if (!code) {
+      return res.status(400).json({ error: 'Authorization code is required' });
+    }
+
+    const clientId = process.env.MICROSOFT_CLIENT_ID;
+    const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
+    const tenantId = process.env.MICROSOFT_TENANT_ID || 'common';
+    const redirectUri = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:3000/oauth/microsoft/callback';
+
+    if (!clientId || !clientSecret) {
+      return res.status(400).json({
+        error: 'Microsoft OAuth is not configured. Missing MICROSOFT_CLIENT_ID or MICROSOFT_CLIENT_SECRET.',
+      });
+    }
+
+    const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+    const params = new URLSearchParams();
+    params.append('client_id', clientId);
+    params.append('client_secret', clientSecret);
+    params.append('code', code);
+    params.append('redirect_uri', redirectUri);
+    params.append('grant_type', 'authorization_code');
+
+    const fetchImpl = typeof fetch !== 'undefined' ? fetch : require('node-fetch');
+    const tokenRes = await fetchImpl(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+
+    const tokenData = await tokenRes.json();
+
+    if (!tokenRes.ok) {
+      return res.status(400).json({
+        error: tokenData.error_description || 'Failed to exchange Microsoft OAuth code for tokens',
+        details: tokenData,
+      });
+    }
+
+    return res.json({
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token,
+      expires_in: tokenData.expires_in,
+      token_type: tokenData.token_type,
+    });
+  } catch (err: any) {
+    logger.error('[AuthRoute] Microsoft OAuth token exchange error:', { error: err.message });
+    return res.status(400).json({ error: 'Failed to exchange Microsoft OAuth code for tokens', details: err.message });
+  }
+});

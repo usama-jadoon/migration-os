@@ -4,7 +4,20 @@ All notable changes to the MigrationOS platform are documented in this file.
 
 ---
 
-## [Unreleased] - Phase 6: Microsoft 365 / Exchange Connector
+## [Unreleased] - Phase 7: Enterprise Billing & Metering
+
+---
+
+## [1.2.0-microsoft-connector] - 2026-07-27
+
+### Added
+- Implemented Microsoft Entra ID (Azure AD) OAuth 2.0 Authorization Code Flow endpoints (`GET /api/auth/microsoft/url`, `POST /api/auth/microsoft/token`).
+- Hardened `MicrosoftConnector` in `apps/api/src/connectors/microsoft.connector.ts` using `@microsoft/microsoft-graph-client`.
+- Implemented Microsoft Graph folder-to-standard mapping (`Inbox` &rarr; `INBOX`, `SentItems` &rarr; `Sent Items`, `DeletedItems` &rarr; `Trash`, `JunkEmail` &rarr; `Junk Email`, `Drafts` &rarr; `Drafts`, custom user folders).
+- Added raw RFC822 MIME decoding stream extraction (`/me/messages/{id}/$value`) and Graph message importing (`/me/mailFolders/{id}/messages`).
+- Added exponential backoff retry wrapper (`withRetry`) for Microsoft Graph rate limits (`429 Too Many Requests`).
+- Added incremental synchronization `$filter` query options.
+- Created `microsoft_connector.test.ts` test suite with 8 automated unit & integration tests (**50/50 total tests passing across 6 suites**).
 
 ---
 
@@ -17,7 +30,7 @@ All notable changes to the MigrationOS platform are documented in this file.
 - Added RFC822 raw MIME extraction and base64url import via `users.messages.insert`.
 - Added exponential backoff retry wrapper (`withRetry`) for Google API rate limit handling.
 - Added incremental synchronization support via `q` query parameters.
-- Created `google_connector.test.ts` test suite with 8 automated unit & integration tests (`42/42 total tests passing`).
+- Created `google_connector.test.ts` test suite with 8 automated unit & integration tests.
 
 ---
 
