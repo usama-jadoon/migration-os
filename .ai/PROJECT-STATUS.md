@@ -1,7 +1,7 @@
 # Project Status — MigrationOS
 
 **Last Updated**: July 27, 2026  
-**Current Baseline Commit**: `0a7d1426f454751478601f83127cb3b54155f48e`  
+**Current Baseline Commit**: `60cf221c9b52a2b64ae8a3fb2cef492832c62b14`  
 **Overall Completion**: `88%`  
 
 ---
@@ -22,10 +22,11 @@ MigrationOS is an open-source, multi-tenant email and workspace migration platfo
 | **3. Automated Verification Gates** | **Completed** | `npm run lint`, `typecheck`, `test` (42/42 passing), `build` |
 | **4. Production Infrastructure Foundation** | **Completed** | PostgreSQL support, Redis/BullMQ queue adapter, Docker Compose |
 | **5. SaaS Core Security & Multi-Tenancy** | **Completed** | User/Session auth (`scrypt`), Org model, RBAC, Tenant isolation, Socket rooms |
-| **6. Google Workspace Integration** | **Completed** | OAuth 2.0 flow, token exchange, label mapping, RFC822 raw MIME import, retry backoff |
-| **7. Live External IMAP Validation** | **Blocked** | Deferred pending valid external test account credentials |
-| **8. Microsoft 365 / Exchange Connector** | **Next** | Graph API & OAuth2 connector implementation |
-| **9. Enterprise Billing & Subscriptions** | **Upcoming** | Stripe billing, tier limits, & usage metering |
+| **6. Google Workspace Integration** | **Code-Complete** | OAuth 2.0 flow, token exchange, label mapping, RFC822 raw MIME import, retry backoff |
+| **7. Google OAuth Local Setup Preparation** | **Completed** | Created `docs/GOOGLE_OAUTH_LOCAL_SETUP.md` & updated environment templates |
+| **8. Live External IMAP / Google Validation** | **Blocked** | Deferred pending valid external test account credentials / OAuth app secrets |
+| **9. Microsoft 365 / Exchange Connector** | **Upcoming** | Graph API & OAuth2 connector implementation |
+| **10. Enterprise Billing & Subscriptions** | **Upcoming** | Stripe billing, tier limits, & usage metering |
 
 ---
 
@@ -40,5 +41,5 @@ MigrationOS is an open-source, multi-tenant email and workspace migration platfo
 
 ## 4. Current Blockers & Stop Conditions
 
-1. **Google Cloud OAuth App Registration**: Real-world OAuth authentication against live Google accounts requires a registered `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in Google Cloud Console.
+1. **Google Cloud OAuth App Credentials**: Live OAuth authentication requires population of `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` following [docs/GOOGLE_OAUTH_LOCAL_SETUP.md](file:///D:/Usama%20Data/All%20Software/migration-os/docs/GOOGLE_OAUTH_LOCAL_SETUP.md).
 2. **Live External IMAP Test Credentials**: Real-world transfer against live remote IMAP mailboxes remains deferred until test credentials are provided.
