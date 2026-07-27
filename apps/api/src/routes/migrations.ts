@@ -6,6 +6,7 @@ import { connectorFactory } from '../utils/connector.factory';
 import { migrationQueue } from '../queues/migration.queue';
 import { authenticateSession, requireRole, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { CreateMigrationSchema, CredentialsUpdateSchema, TestConnectionSchema, MappingsUpdateSchema } from './validation';
+import { billingService } from '../services/billing.service';
 import { logger } from '../utils/logger';
 
 export const migrationRoutes = Router();
@@ -33,6 +34,12 @@ migrationRoutes.post('/', requireRole(['owner', 'admin', 'operator']), async (re
     const validated = CreateMigrationSchema.safeParse(req.body);
     if (!validated.success) {
       return res.status(400).json({ error: 'Invalid migration data', details: validated.error.issues });
+    }
+
+    // Check billing quota limits before creating new migration mailbox
+    const billingCheck = await billingService.checkMigrationLimit(req.organizationId!);
+    if (!billingCheck.allowed) {
+      return res.status(402).json({ error: 'Payment Required', message: billingCheck.reason });
     }
 
     const { sourceProvider, sourceEmail, destProvider, destEmail } = validated.data;
@@ -348,6 +355,12 @@ migrationRoutes.post('/:id/start', requireRole(['owner', 'admin', 'operator']), 
     const allowed = ['ready', 'paused', 'failed', 'draft'];
     if (!allowed.includes(migration.status)) {
       return res.status(400).json({ error: `Cannot start migration from status '${migration.status}'.` });
+    }
+
+    // Check concurrency limits before starting worker job
+    const billingCheck = await billingService.checkMigrationLimit(req.organizationId!);
+    if (!billingCheck.allowed) {
+      return res.status(402).json({ error: 'Payment Required', message: billingCheck.reason });
     }
 
     const updated = await prisma.migration.update({

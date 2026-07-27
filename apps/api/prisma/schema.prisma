@@ -30,6 +30,25 @@ model Organization {
   providerConnections ProviderConnection[]
   migrations          Migration[]
   auditLogs           AuditLog[]
+  subscription        Subscription?
+}
+
+model Subscription {
+  id                   String       @id @default(uuid())
+  organizationId       String       @unique
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan                 String       @default("free") // free, pro, enterprise
+  status               String       @default("active") // active, canceled, past_due, trialing
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  maxMailboxes         Int          @default(5)
+  maxDataBytes         BigInt       @default(10737418240) // 10GB default
+  maxConcurrentJobs    Int          @default(1)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@index([organizationId])
+  @@index([stripeCustomerId])
 }
 
 model OrganizationMembership {

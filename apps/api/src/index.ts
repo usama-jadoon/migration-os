@@ -12,6 +12,7 @@ import { migrationRoutes } from './routes/migrations';
 import { authRoutes } from './routes/auth';
 import { providerRoutes } from './routes/providers';
 import { organizationRoutes } from './routes/organizations';
+import { billingRoutes } from './routes/billing';
 import { checkDbHealth } from './utils/db';
 import { migrationQueue } from './queues/migration.queue';
 import { logger } from './utils/logger';
@@ -98,6 +99,7 @@ app.use('/api/migrations', migrationRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/providers', providerRoutes);
 app.use('/api/organizations', organizationRoutes);
+app.use('/api/billing', billingRoutes);
 
 const PORT = process.env.PORT || 4000;
 
